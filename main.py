@@ -1,9 +1,6 @@
 import asyncio
 import websockets
 import json
-import time
-import logging
-import threading 
 import base64 
 import io          
 from PIL import Image

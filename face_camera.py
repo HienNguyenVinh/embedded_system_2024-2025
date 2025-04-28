@@ -1,6 +1,5 @@
 import cv2
 import mediapipe as mp
-import pickle
 import numpy as np
 import os
 import tensorflow as tf
@@ -9,6 +8,7 @@ from settings import *
 from face_spoof_detector import FaceSpoofDetector
 from PIL import Image
 import time
+from picamera2 import PiCamera2
 
 def init_face_recognition_model():
     try:
@@ -90,10 +90,14 @@ def find_matching_face(face_embedding, known_face_embeddings, known_face_ids):
 
 def main_camera_loop(current_mode, is_connected_to_backend, known_face_embeddings, known_face_ids, shared_state_lock, spoof_detector, face_detector, face_recognitor):
     print("Starting main camera processing loop...")
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        print("Lỗi: Không thể mở camera.")
-        exit()
+    picam = PiCamera2()
+    picam.preview_configuration.main.size = (640, 480)
+    picam.start()
+
+    # cap = cv2.VideoCapture(0)
+    # if not cap.isOpened():
+    #     print("Lỗi: Không thể mở camera.")
+    #     exit()
 
     last_connection_check_time = time.time()
     effective_mode = "secure"
@@ -131,10 +135,11 @@ def main_camera_loop(current_mode, is_connected_to_backend, known_face_embedding
 
         # print(f"Effective Mode: {effective_mode} | Connected: {local_is_connected} | Known Faces: {len(local_embeddings)}")
 
-        success, frame = cap.read()
-        if not success:
-            print("Lỗi: Không thể đọc frame từ camera hoặc video kết thúc.")
-            break
+        frame = picam.capture_array()
+        # success, frame = cap.read()
+        # if not success:
+        #     print("Lỗi: Không thể đọc frame từ camera hoặc video kết thúc.")
+        #     break
 
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
@@ -232,6 +237,6 @@ def main_camera_loop(current_mode, is_connected_to_backend, known_face_embedding
             break
 
     # Giải phóng camera khi kết thúc
-    cap.release()
+    # cap.release()
     cv2.destroyAllWindows()
     print("Main camera loop stopped.")
