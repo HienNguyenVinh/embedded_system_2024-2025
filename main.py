@@ -202,7 +202,7 @@ def video_feed():
                         shared_state_lock, 
                         spoof_detector, 
                         face_detector, 
-                        interpreter_rec
+                        interpreter_rec,
                         door_controller),
         media_type='multipart/x-mixed-replace; boundary=frame'
     )

@@ -193,12 +193,13 @@ def main_camera_loop(current_mode, is_connected_to_backend, known_face_embedding
                             status_text = "REAL"
                             # print(f"Unknown face detected: {recognition_name}, Distance: {recognition_distance}")
 
-                            if door_controller.is_ultrasonic_triggered():
-                                door_controller.activate_buzzer()
+                            # if door_controller.is_ultrasonic_triggered():
+                                # door_controller.activate_buzzer()
                                 # send_warning_log(frame, "Laser triggered, unknown face")
 
                             if recognition_name not in seen_history:
-                                print(f"Recognition successful: Name: {recognition_name}")
+                                print(f"Recognition fail: {recognition_name}")
+                                door_controller.activate_buzzer(beeps=2, on_time=0.25, off_time=0.25)
                                 # send_warning_log(frame, "Unknown face")
                                 seen_history.add(recognition_name)
 
@@ -208,7 +209,6 @@ def main_camera_loop(current_mode, is_connected_to_backend, known_face_embedding
                         cv2.putText(frame, status_text, (x, y + h + 15),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
                         
-                        print(1111)
                         ret, buf = cv2.imencode(".jpg", frame)
                         
                     except Exception as e:
@@ -220,7 +220,7 @@ def main_camera_loop(current_mode, is_connected_to_backend, known_face_embedding
                 if door_controller.is_ultrasonic_triggered():
                     door_controller.activate_buzzer()
                     # send_warning_log(frame, "Laser triggered, no face detected")
-                 pass 
+                    pass 
             
         elif effective_mode == "free":
             # Chế độ tự do, ví dụ: chỉ log khi laser bị chặn
