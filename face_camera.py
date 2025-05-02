@@ -1,21 +1,22 @@
 import cv2
-import mediapipe as mp
+# import mediapipe as mp
 import numpy as np
 import os
-import tensorflow as tf
+# import tensorflow as tf
+import tflite_runtime.interpreter as tf
 from scipy.spatial.distance import cosine
 from settings import *
 from face_spoof_detector import FaceSpoofDetector
 from PIL import Image
 import time
-from picamera2 import PiCamera2
+from picamera2 import Picamera2
 
 def init_face_recognition_model():
     try:
         # Ensure the path comes from settings.py or is defined correctly
         if not os.path.isfile(TFLITE_MODEL_PATH):
             raise FileNotFoundError(f"Recognition TFLite model not found: {TFLITE_MODEL_PATH}")
-        interpreter_rec = tf.lite.Interpreter(model_path=TFLITE_MODEL_PATH)
+        interpreter_rec = tf.Interpreter(model_path=TFLITE_MODEL_PATH)
         interpreter_rec.allocate_tensors()
         # input_details_rec = interpreter_rec.get_input_details()
         
@@ -28,12 +29,12 @@ def init_face_recognition_model():
 
 def init_face_spoof_detector():
     try:
-        spoof_detector = FaceSpoofDetector(model_dir=SPOOF_MODEL_DIR, use_gpu=False)
+        spoof_detector = FaceSpoofDetector(model_dir=SPOOF_MODEL_PATH, use_gpu=False)
         return spoof_detector
     
     except FileNotFoundError as e:
         print(f"Lỗi: Không tìm thấy thư mục hoặc tệp mô hình Spoof: {e}")
-        print("Vui lòng đảm bảo SPOOF_MODEL_DIR trong settings.py là chính xác và chứa các tệp .tflite cần thiết.")
+        print("Vui lòng đảm bảo SPOOF_MODEL_PATH trong settings.py là chính xác và chứa các tệp .tflite cần thiết.")
         exit()
     except Exception as e:
         print(f"Lỗi khi khởi tạo FaceSpoofDetector: {e}")
@@ -88,16 +89,11 @@ def find_matching_face(face_embedding, known_face_embeddings, known_face_ids):
     else:
         return "Unknown", min_distance
 
-def main_camera_loop(current_mode, is_connected_to_backend, known_face_embeddings, known_face_ids, shared_state_lock, spoof_detector, face_detector, face_recognitor):
+def main_camera_loop(current_mode, is_connected_to_backend, known_face_embeddings, known_face_ids, shared_state_lock, spoof_detector, face_detector, face_recognitor, door_controller):
     print("Starting main camera processing loop...")
-    picam = PiCamera2()
+    picam = Picamera2()
     picam.preview_configuration.main.size = (640, 480)
     picam.start()
-
-    # cap = cv2.VideoCapture(0)
-    # if not cap.isOpened():
-    #     print("Lỗi: Không thể mở camera.")
-    #     exit()
 
     last_connection_check_time = time.time()
     effective_mode = "secure"
@@ -105,6 +101,10 @@ def main_camera_loop(current_mode, is_connected_to_backend, known_face_embedding
     input_details_rec = face_recognitor.get_input_details()
     output_details_rec = face_recognitor.get_output_details()
     input_dtype_rec = input_details_rec[0]['dtype']
+
+    seen_history = set()  
+    seen_warnings = set()
+    spoof_warning = False
 
     while True:
         current_time = time.time()
@@ -136,107 +136,112 @@ def main_camera_loop(current_mode, is_connected_to_backend, known_face_embedding
         # print(f"Effective Mode: {effective_mode} | Connected: {local_is_connected} | Known Faces: {len(local_embeddings)}")
 
         frame = picam.capture_array()
-        # success, frame = cap.read()
-        # if not success:
-        #     print("Lỗi: Không thể đọc frame từ camera hoặc video kết thúc.")
-        #     break
 
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        ret, buf = cv2.imencode(".jpg", rgb_frame)
 
         # --- Xử lý logic dựa trên effective_mode ---
         if effective_mode == "secure":
             rgb_frame.flags.writeable = False
-            results = face_detector.process(rgb_frame) 
-            pil_frame_rgb = Image.fromarray(rgb_frame)
-            frame.flags.writeable = True 
+            face_results = face_detector.get_faces(rgb_frame)
+            rgb_frame.flags.writeable = True 
 
-            if results.detections:
-                ih, iw, _ = frame.shape
-                for detection in results.detections:
+            # print(f"Detected {len(face_results)} faces.")
+            if len(face_results) > 0:
+                for face_image_rec, (x,y,w,h, score) in face_results:
                     try:
-                        # Extract bounding box (relative -> absolute)
-                        bboxC = detection.location_data.relative_bounding_box
-                        if bboxC is None: continue
-                        # Ensure box coordinates are within frame boundaries and valid
-                        x = max(0, int(bboxC.xmin * iw))
-                        y = max(0, int(bboxC.ymin * ih))
-                        w = min(iw - x, int(bboxC.width * iw))
-                        h = min(ih - y, int(bboxC.height * ih))
+                        current_embedding = preprocess_and_embed_realtime(
+                            face_image_rec,
+                            face_recognitor,
+                            input_details_rec,
+                            output_details_rec,
+                            input_dtype_rec
+                        )
 
-                        # Skip invalid or zero-sized boxes
-                        if w <= 0 or h <= 0: continue
+                        recognition_name, recognition_distance = find_matching_face(
+                            current_embedding,
+                            local_embeddings,
+                            local_ids
+                        )
 
-                        # Crop face for recognition model input
-                        face_image_rec = frame[y : y + h, x : x + w]
-                        if face_image_rec.size == 0: continue
 
-                        # Get recognition embedding
-                        current_embedding = preprocess_and_embed_realtime(face_image_rec, face_recognitor, input_details_rec, output_details_rec, input_dtype_rec)
+                        # x, y, w, h = cv2.boundingRect(face_image_rec)
+                        pil_frame_rgb = Image.fromarray(rgb_frame)
+                        spoof_results = spoof_detector.detect_spoof(pil_frame_rgb, (x, y, w, h))
+                        is_spoof = spoof_results["is_spoof"]
+                        spoof_score = spoof_results["score"]
 
-                        # Find best match
-                        recognition_name, recognition_distance = find_matching_face(current_embedding, local_embeddings, local_ids)
-
-                        bbox_spoof = (x, y, w, h)
-                        spoof_results = spoof_detector.detect_spoof(pil_frame_rgb, bbox_spoof)
-                        is_spoof = spoof_results['is_spoof']
-                        spoof_score = spoof_results['score']
-                        
                         if recognition_name != "Unknown" and not is_spoof:
                             color = (0, 255, 0)
                             status_text = "REAL"
-                            # print(f"Recognition successful: Name: {recognition_name}, Distance: {recognition_distance}")
-                            # --- MỞ CỬA ---
-                            # open_door()
-                            # --- GỬI LOG HISTORY (POST /api/history) ---
-                            # send_history_log(recognized_id, frame, effective_mode) # Cần hàm này
+
+                            door_controller.open_door()
+
+                            if recognition_name not in seen_history:
+                                print(f"Recognition successful: Name: {recognition_name}")
+                                # send_history_log(frame, recognition_name, effective_mode)
+                                seen_history.add(recognition_name)
 
                         elif is_spoof:
                             color = (0, 0, 255)
                             status_text = f"SPOOF ({spoof_score:.2f})"
-                            # print("Face spoof detected!")
+                            if not spoof_warning:
+                                print(f"Face spoof detected!")
+                                spoof_warning = True
                         else:
                             color = (255, 0, 0) 
                             status_text = "REAL"
                             # print(f"Unknown face detected: {recognition_name}, Distance: {recognition_distance}")
-                            # --- KIỂM TRA LASER VÀ KÍCH HOẠT CẢNH BÁO ---
-                            # if is_laser_triggered():
-                            #     activate_buzzer()
-                            #     send_warning_log("Laser triggered, unknown face", frame) # Cần hàm này
+
+                            if door_controller.is_ultrasonic_triggered():
+                                door_controller.activate_buzzer()
+                                # send_warning_log(frame, "Laser triggered, unknown face")
+
+                            if recognition_name not in seen_history:
+                                print(f"Recognition successful: Name: {recognition_name}")
+                                # send_warning_log(frame, "Unknown face")
+                                seen_history.add(recognition_name)
 
                         cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-
-                        rec_text = f"{recognition_name}"
-                        cv2.putText(frame, rec_text, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-
-                        cv2.putText(frame, status_text, (x, y + h + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                        cv2.putText(frame, recognition_name, (x, y - 10),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                        cv2.putText(frame, status_text, (x, y + h + 15),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                        
+                        print(1111)
+                        ret, buf = cv2.imencode(".jpg", frame)
+                        
                     except Exception as e:
+                        print(f"Error processing face: {e}")
                         continue
 
             else:
                  # Không có khuôn mặt nào được phát hiện
-                 # --- KIỂM TRA LASER VÀ KÍCH HOẠT CẢNH BÁO ---
-                 # if is_laser_triggered():
-                 #     activate_buzzer()
-                 #     send_warning_log("Laser triggered, no face detected", frame) # Cần hàm này
+                if door_controller.is_ultrasonic_triggered():
+                    door_controller.activate_buzzer()
+                    # send_warning_log(frame, "Laser triggered, no face detected")
                  pass 
             
         elif effective_mode == "free":
             # Chế độ tự do, ví dụ: chỉ log khi laser bị chặn
-            # if is_laser_triggered():
+            # if door_controller.is_ultrasonic_triggered():
             #    print("Laser triggered in FREE mode. Logging history.")
             #    # Cố gắng nhận diện nhanh nếu có thể
             #    recognized_id = try_recognize_face_quickly(frame, local_embeddings, local_ids) # Cần hàm này
             #    send_history_log(recognized_id, frame, effective_mode)
             pass
 
-        cv2.imshow("Face Recognition & Spoof Detection (Nhan 'q' de thoat)", frame)
+        
+        
+        if not ret:
+            continue
+        jpg_bytes = buf.tobytes()
 
-        # Exit loop if 'q' is pressed
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            print("Thoát bởi người dùng.")
-            break
+        yield (
+            b"--frame\r\n"
+            b"Content-Type: image/jpeg\r\n\r\n" +
+            jpg_bytes +
+            b"\r\n"
+        )
 
-    # Giải phóng camera khi kết thúc
-    # cap.release()
-    cv2.destroyAllWindows()
     print("Main camera loop stopped.")

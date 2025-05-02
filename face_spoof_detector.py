@@ -2,7 +2,8 @@ import os
 import time
 import numpy as np
 from PIL import Image
-import tensorflow as tf
+# import tensorflow as tf
+import tflite_runtime.interpreter as tf
 from scipy.spatial.distance import cosine
 
 
@@ -53,7 +54,7 @@ class FaceSpoofDetector:
             if not os.path.isfile(path):
                  raise FileNotFoundError(f"Spoof model file not found: {path}")
             try:
-                interpreter = tf.lite.Interpreter(
+                interpreter = tf.Interpreter(
                     model_path=path,
                     experimental_delegates=delegates,
                     num_threads=num_threads

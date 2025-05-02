@@ -1,23 +1,21 @@
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse, HTMLResponse
 import asyncio
 import websockets
 import json
 import base64 
 import io          
-from PIL import Image
-import mediapipe as mp
 import pickle
 from settings import *
 from PIL import Image
 from settings import *
-from embedding_face import get_face_embedding, get_embeddings_data
+from embedding_face import get_face_embedding_tflite, get_embeddings_data
 from face_camera import main_camera_loop, init_face_spoof_detector, init_face_recognition_model
-
-# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(threadName)s - %(levelname)s - %(message)s')
-
-# ----- Cấu hình -----
-BACKEND_WS_URL = "ws://localhost:8080/smartdoor-pi-websocket/websocket"
-RECONNECT_DELAY_SECONDS = 5
-CAMERA_INDEX = 0 
+from face_detector import FaceDetector
+from picamera2 import Picamera2
+import cv2
+from door_control import DoorController
+from log_sender import send_history_log, send_warning_log
 
 # shared_state_lock = threading.Lock()
 shared_state_lock = None
@@ -26,7 +24,7 @@ is_connected_to_backend = False
 
 known_face_embeddings, known_face_ids = get_embeddings_data()
 known_faces_data_cache = {}
-# --- Hàm xử lý WebSocket (Chạy trong thread riêng) ---
+
 
 def update_local_mode(new_mode):
     """Cập nhật chế độ hoạt động (thread-safe)."""
@@ -172,24 +170,55 @@ def run_websocket_listener():
     """Hàm để chạy asyncio event loop trong thread mới."""
     asyncio.run(websocket_listener_task())
 
-# --- Hàm khởi chạy ---
+
+app = FastAPI()
+face_detector = FaceDetector()
+spoof_detector = init_face_spoof_detector()
+interpreter_rec = init_face_recognition_model()
+door_controller = DoorController()
+
+@app.get("/", response_class=HTMLResponse)
+def index():
+    return """
+    <html>
+      <head><title>Stream</title></head>
+      <body>
+        <h1>Live Face Detection</h1>
+        <!-- giữ 640×480 hoặc dùng responsive đúng tỉ lệ -->
+        <img src="/video_feed" width="640" height="480" style="object-fit: none;" />
+      </body>
+    </html>
+    """
+
+
+@app.get("/video_feed")
+def video_feed():
+    # Streaming endpoint
+    return StreamingResponse(
+        main_camera_loop(current_mode, 
+                        is_connected_to_backend, 
+                        known_face_embeddings, 
+                        known_face_ids, 
+                        shared_state_lock, 
+                        spoof_detector, 
+                        face_detector, 
+                        interpreter_rec
+                        door_controller),
+        media_type='multipart/x-mixed-replace; boundary=frame'
+    )
+
+
 if __name__ == "__main__":
-    print("Initializing Smart Door Pi Software...")
-
-    # websocket_thread = threading.Thread(target=run_websocket_listener, name="WebSocketThread", daemon=True)
-    # websocket_thread.start()
-    # print("WebSocket listener thread started.")
-
-    # time.sleep(2)
-
-    # Chạy vòng lặp camera trong main thread
-    mp_face_detection = mp.solutions.face_detection
-    face_detector = mp_face_detection.FaceDetection(min_detection_confidence=DETECTION_CONFIDENCE)
-    mp_drawing = mp.solutions.drawing_utils
-    spoof_detector = init_face_spoof_detector()
-    interpreter_rec = init_face_recognition_model()
     try:
-        main_camera_loop(current_mode, is_connected_to_backend, known_face_embeddings, known_face_ids, shared_state_lock, spoof_detector, face_detector, interpreter_rec)
+        # websocket_thread = threading.Thread(target=run_websocket_listener, name="WebSocketThread", daemon=True)
+        # websocket_thread.start()
+        # print("WebSocket listener thread started.")
+
+        # time.sleep(2)
+
+
+        # uvicorn test_stream:app --host 0.0.0.0 --port 8000
+        uvicorn.run(app, host="0.0.0.0", port=8000)
     except KeyboardInterrupt:
         print("Stopping application...")
     finally:

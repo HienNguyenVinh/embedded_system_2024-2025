@@ -1,15 +1,14 @@
 import os
 import cv2
 import pickle
-import mediapipe as mp
-import tensorflow as tf
+import tflite_runtime.interpreter as tf
 import numpy as np
 from settings import *
 import io
 from face_camera import init_face_recognition_model
+from face_detector import FaceDetector
 
-mp_face_detection = mp.solutions.face_detection
-face_detection = mp_face_detection.FaceDetection(min_detection_confidence=DETECTION_CONFIDENCE)
+face_detector = FaceDetector()
 interpreter = init_face_recognition_model()
 
 input_details = interpreter.get_input_details()
@@ -45,73 +44,15 @@ def preprocess_and_embed(face_image):
 
 
 def get_face_embedding_tflite(image):
-    """Phát hiện khuôn mặt lớn nhất và trích xuất embedding bằng TFLite."""
-    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    results = face_detection.process(image_rgb)
+    resized_image = cv2.resize(image, (INPUT_WIDTH_DET, INPUT_HEIGHT_DET))
+    face_results = face_detector.get_faces(resized_image)
 
-    if not results.detections:
-        # print("Không phát hiện thấy khuôn mặt nào.")
+    if not face_results:
         return None
 
-    best_detection = None
-    max_area = 0
-    ih, iw, _ = image.shape
+    best_crop, _ = max(face_results, key=lambda item: item[1][2] * item[1][3])
 
-    for detection in results.detections:
-        try:
-            bboxC = detection.location_data.relative_bounding_box
-            if bboxC is None: continue
-            bbox = int(bboxC.xmin * iw), int(bboxC.ymin * ih), \
-                   int(bboxC.width * iw), int(bboxC.height * ih)
-            area = bbox[2] * bbox[3]
-            if area > max_area and bbox[2] > 0 and bbox[3] > 0:
-                max_area = area
-                best_detection = detection
-        except Exception as e:
-             # print(f"Lỗi nhỏ khi xử lý detection: {e}")
-             continue
-
-    if best_detection is None:
-        # print("Không thể xác định khuôn mặt chính.")
-        return None
-
-    # Lấy bounding box của khuôn mặt chính
-    bboxC = best_detection.location_data.relative_bounding_box
-    x, y, w, h = int(bboxC.xmin * iw), int(bboxC.ymin * ih), \
-                 int(bboxC.width * iw), int(bboxC.height * ih)
-
-    # Cắt ảnh khuôn mặt (không cần padding nhiều vì resize sẽ xử lý)
-    x, y = max(0, x), max(0, y) # Đảm bảo không âm
-    face_image = image[y : y + h, x : x + w]
-
-    if face_image.size == 0:
-        # print("Ảnh khuôn mặt cắt ra bị rỗng.")
-        return None
-
-    # Tiền xử lý và tạo embedding
-    embedding = preprocess_and_embed(face_image)
-    return embedding
-
-
-def get_face_embedding(image_input):
-    if isinstance(image_input, str):
-        image = cv2.imread(image_input)
-        if image is None:
-            print(f"Lỗi: Không thể đọc file ảnh {image_input}.")
-            return None
-    elif isinstance(image_input, io.BytesIO):
-        image_bytes = image_input.getvalue()
-        image_array = np.frombuffer(image_bytes, np.uint8)
-        image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
-        if image is None:
-            print("Lỗi: Không thể giải mã dữ liệu bytes thành hình ảnh.")
-            return None
-    else:
-        print("Lỗi: Đầu vào không hợp lệ. Cần là đường dẫn tệp (str) hoặc io.BytesIO.")
-        return None
-
-    # Gọi hàm để lấy embedding
-    embedding = get_face_embedding_tflite(image)
+    embedding = preprocess_and_embed(best_crop)
     return embedding
 
 def get_embeddings_data():
@@ -178,7 +119,6 @@ if __name__ == "__main__":
 
     if not known_face_embeddings:
         print("Không tạo được embedding nào. Vui lòng kiểm tra lại ảnh đầu vào và model TFLite.")
-        face_detection.close()
         exit()
 
     # Lưu embeddings và tên vào file pickle (dùng tên file mới)
@@ -187,4 +127,3 @@ if __name__ == "__main__":
         pickle.dump(data, f)
 
     print(f"\nHoàn tất! Đã lưu {len(known_face_embeddings)} embeddings TFLite vào file: {EMBEDDINGS_FILE}")
-    face_detection.close()
