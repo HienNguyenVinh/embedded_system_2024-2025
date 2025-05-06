@@ -1,7 +1,8 @@
 import os
 
-API_BASE_URL = ""
-BACKEND_WS_URL = "ws://localhost:8080/smartdoor-pi-websocket/websocket"
+API_BASE_URL = "http://209.97.160.79/"
+SERVER_URI = "ws://209.97.160.79:80/ws/websocket"
+SUBSCRIBE_TOPIC = "/topic/messages"
 RECONNECT_DELAY_SECONDS = 5
 CAMERA_INDEX = 0 
 

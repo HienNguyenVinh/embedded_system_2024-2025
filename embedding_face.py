@@ -5,19 +5,19 @@ import tflite_runtime.interpreter as tf
 import numpy as np
 from settings import *
 import io
-from face_camera import init_face_recognition_model
+from face_utils import init_face_recognition_model
 from face_detector import FaceDetector
 
-face_detector = FaceDetector()
-interpreter = init_face_recognition_model()
+# face_detector = FaceDetector()
+# interpreter = init_face_recognition_model()
 
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
-input_dtype = input_details[0]['dtype']
+# input_details = interpreter.get_input_details()
+# output_details = interpreter.get_output_details()
+# input_dtype = input_details[0]['dtype']
 
 
 # --- Hàm tiền xử lý và embedding ---
-def preprocess_and_embed(face_image):
+def preprocess_and_embed(face_image, interpreter, input_details, output_details, input_dtype):
     """Resize, chuẩn hóa và tạo embedding bằng TFLite model."""
     try:
         resized_face = cv2.resize(face_image, (INPUT_WIDTH, INPUT_HEIGHT))
@@ -25,25 +25,26 @@ def preprocess_and_embed(face_image):
         normalized_face = (rgb_face.astype(np.float32) - NORM_MEAN) / NORM_STD
         input_data = np.expand_dims(normalized_face, axis=0)
 
-
-        # Kiểm tra và chuyển đổi dtype nếu cần
         if input_data.dtype != input_dtype:
              input_data = input_data.astype(input_dtype)
 
-
-        # Inference
         interpreter.set_tensor(input_details[0]['index'], input_data)
         interpreter.invoke()
         embedding = interpreter.get_tensor(output_details[0]['index'])
 
-        return embedding[0] # Bỏ chiều batch
+        return embedding[0]
 
     except Exception as e:
-        print(f"Lỗi trong quá trình tiền xử lý hoặc embedding: {e}")
+        # print(f"Error in preprocess/embed realtime: {e}")
         return None
 
 
-def get_face_embedding_tflite(image):
+def get_face_embedding_tflite(image, face_detector, interpreter):
+    """Nhận diện khuôn mặt và tạo embedding từ ảnh đầu vào."""
+    if image is None:
+        print("Error: Cannot read image.")
+        return None
+    
     resized_image = cv2.resize(image, (INPUT_WIDTH_DET, INPUT_HEIGHT_DET))
     face_results = face_detector.get_faces(resized_image)
 
@@ -52,7 +53,14 @@ def get_face_embedding_tflite(image):
 
     best_crop, _ = max(face_results, key=lambda item: item[1][2] * item[1][3])
 
-    embedding = preprocess_and_embed(best_crop)
+    embedding = preprocess_and_embed(best_crop, interpreter, 
+                                    interpreter.get_input_details(), 
+                                    interpreter.get_output_details(), 
+                                    interpreter.get_input_details()[0]['dtype'])
+    if embedding is None:
+        print("Error: Failed to create embedding.")
+        return None
+
     return embedding
 
 def get_embeddings_data():
