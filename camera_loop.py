@@ -16,13 +16,13 @@ from log_sender import send_history_log, send_warning_log
 
 def find_matching_face(face_embedding, known_face_embeddings, known_face_ids):
     if face_embedding is None or len(known_face_embeddings) == 0:
-        return "Unknown", float('inf')
+        return "Unknown", -1, float('inf')
 
     try:
         distances = [cosine(face_embedding, known_embedding) for known_embedding in known_face_embeddings]
     except Exception as e:
         print(f"Error calculating distances: {e}")
-        return "Error", float('inf')
+        return "Error", -1, float('inf')
 
     if not distances: return "Unknown", float('inf')
 
@@ -32,9 +32,9 @@ def find_matching_face(face_embedding, known_face_embeddings, known_face_ids):
     # print(f"Min distance: {min_distance:.4f}") # Debugging
 
     if min_distance < RECOGNITION_THRESHOLD:
-        return known_face_ids[min_distance_index], min_distance
+        return known_face_ids[min_distance_index], min_distance_index, min_distance
     else:
-        return "Unknown", min_distance
+        return "Unknown", -1, min_distance
 
 async def main_camera_loop(shared_data, spoof_detector, face_detector, face_recognitor, door_controller):
     print("Starting main camera processing loop...")
@@ -64,6 +64,7 @@ async def main_camera_loop(shared_data, spoof_detector, face_detector, face_reco
             local_current_mode_from_ws = shared_data["current_mode"]
             local_embeddings = shared_data["known_face_embeddings"].copy()
             local_ids = shared_data["known_face_ids"][:]
+            simple_ids = shared_data["known_simple_ids"][:]
 
         # local_embeddings = list(known_face_embeddings)
         # local_ids = list(known_face_ids)
@@ -101,7 +102,7 @@ async def main_camera_loop(shared_data, spoof_detector, face_detector, face_reco
                             input_dtype_rec
                         )
 
-                        recognition_id, recognition_distance = find_matching_face(
+                        recognition_id, pp_id, recognition_distance = find_matching_face(
                             current_embedding,
                             local_embeddings,
                             local_ids
@@ -121,7 +122,8 @@ async def main_camera_loop(shared_data, spoof_detector, face_detector, face_reco
 
                             if recognition_id not in seen_history:
                                 print(f"Recognition successful: Name: {recognition_id}")
-                                send_history_log(frame, recognition_id, effective_mode)
+                                print(int(pp_id)- 1)
+                                send_history_log(frame, simple_ids[int(pp_id)- 1], effective_mode)
                                 seen_history.add(recognition_id)
 
                                 door_controller.activate_buzzer(beeps=2, on_time=0.1, off_time=0.1)

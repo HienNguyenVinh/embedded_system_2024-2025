@@ -30,6 +30,7 @@ shared_data = {
     "current_mode": "secure",
     "known_face_embeddings": [],
     "known_face_ids": [],
+    "known_simple_ids": [21],
 }
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -86,9 +87,9 @@ async def update_local_mode(new_mode):
     else:
         logger.warning("Received MODE_UPDATE with invalid mode.")
 
-async def process_user_image_data(user_id, face_image_url):
+async def process_user_image_data(user_id, simple_id, face_image_url):
     """Callback khi nhận USER_ADDED hoặc USER_UPDATED."""
-    if not all([user_id, face_image_url]):
+    if not all([user_id, simple_id, face_image_url]):
         logger.warning(f"Received ADD/UPDATE user with missing data (id={user_id})")
         return
 
@@ -117,6 +118,7 @@ async def process_user_image_data(user_id, face_image_url):
             logger.info(f"Successfully extracted embedding for user {user_id}.")
             async with shared_data["lock"]:
                 shared_data["known_face_embeddings"].append(embedding)
+                shared_data["known_simple_ids"].append(simple_id)
                 if user_id not in shared_data["known_face_ids"]:
                     shared_data["known_face_ids"].append(user_id)
                     logger.info(f"Added new user ID {user_id} to known list.")

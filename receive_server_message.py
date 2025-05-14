@@ -57,7 +57,7 @@ async def parse_and_process_message(message_body, handlers):
             await handlers["update_mode"](payload.get('mode'))
         elif nt == "ADD_PEOPLE" and handlers.get("add_user"):
             await handlers["add_user"](
-                payload.get('identificationId'), payload.get('image_path')
+                payload.get('identificationId'), payload.get('peopleId'), payload.get('image_path')
             )
         elif nt == "USER_UPDATED" and handlers.get("update_user"):
             await handlers["update_user"](
