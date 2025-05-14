@@ -5,11 +5,13 @@ import tflite_runtime.interpreter as tf
 from scipy.spatial.distance import cosine
 from PIL import Image
 import time
+import asyncio
 from picamera2 import Picamera2
 
 from settings import *
 from face_spoof_detector import FaceSpoofDetector
 from embedding_face import get_face_embedding_tflite, preprocess_and_embed
+from log_sender import send_history_log, send_warning_log
 
 
 def find_matching_face(face_embedding, known_face_embeddings, known_face_ids):
@@ -32,7 +34,7 @@ def find_matching_face(face_embedding, known_face_embeddings, known_face_ids):
     if min_distance < RECOGNITION_THRESHOLD:
         return known_face_ids[min_distance_index], min_distance
     else:
-        return "Unknown", min_distance
+        return -1, min_distance
 
 async def main_camera_loop(shared_data, spoof_detector, face_detector, face_recognitor, door_controller):
     print("Starting main camera processing loop...")
@@ -58,7 +60,7 @@ async def main_camera_loop(shared_data, spoof_detector, face_detector, face_reco
         local_embeddings = []
         local_ids = []
         async with shared_data["lock"]:
-            local_is_connected = shared_data["is_connected_to_backend"]
+            local_is_connected = shared_data["is_connected"]
             local_current_mode_from_ws = shared_data["current_mode"]
             local_embeddings = shared_data["known_face_embeddings"].copy()
             local_ids = shared_data["known_face_ids"][:]
@@ -99,7 +101,7 @@ async def main_camera_loop(shared_data, spoof_detector, face_detector, face_reco
                             input_dtype_rec
                         )
 
-                        recognition_name, recognition_distance = find_matching_face(
+                        recognition_id, recognition_distance = find_matching_face(
                             current_embedding,
                             local_embeddings,
                             local_ids
@@ -112,16 +114,18 @@ async def main_camera_loop(shared_data, spoof_detector, face_detector, face_reco
                         is_spoof = spoof_results["is_spoof"]
                         spoof_score = spoof_results["score"]
 
-                        if recognition_name != "Unknown" and not is_spoof:
+                        if recognition_id != -1 and not is_spoof:
                             color = (0, 255, 0)
                             status_text = "REAL"
 
-                            door_controller.open_door()
 
-                            if recognition_name not in seen_history:
-                                print(f"Recognition successful: Name: {recognition_name}")
-                                send_history_log(frame, recognition_name, effective_mode)
-                                seen_history.add(recognition_name)
+                            if recognition_id not in seen_history:
+                                print(f"Recognition successful: Name: {recognition_id}")
+                                send_history_log(frame, recognition_id, effective_mode)
+                                seen_history.add(recognition_id)
+
+                            door_controller.activate_buzzer(beeps=2, on_time=0.25, off_time=0.25)
+                            door_controller.open_door()
 
                         elif is_spoof:
                             color = (0, 0, 255)
@@ -129,6 +133,7 @@ async def main_camera_loop(shared_data, spoof_detector, face_detector, face_reco
                             if not spoof_warning:
                                 print(f"Face spoof detected!")
                                 spoof_warning = True
+                                door_controller.activate_buzzer(beeps=3, on_time=1, off_time=0.25)
                         else:
                             color = (255, 0, 0) 
                             status_text = "REAL"
@@ -138,14 +143,14 @@ async def main_camera_loop(shared_data, spoof_detector, face_detector, face_reco
                                 # door_controller.activate_buzzer()
                                 # send_warning_log(frame, "Laser triggered, unknown face")
 
-                            if recognition_name not in seen_history:
-                                print(f"Recognition fail: {recognition_name}")
-                                door_controller.activate_buzzer(beeps=2, on_time=0.25, off_time=0.25)
+                            if recognition_id not in seen_history:
+                                print(f"Recognition fail: {recognition_id}")
+                                door_controller.activate_buzzer(beeps=3, on_time=1, off_time=0.25)
                                 send_warning_log(frame, "Unknown face")
-                                seen_history.add(recognition_name)
+                                seen_history.add(recognition_id)
 
                         cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-                        cv2.putText(frame, recognition_name, (x, y - 10),
+                        cv2.putText(frame, recognition_id, (x, y - 10),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
                         cv2.putText(frame, status_text, (x, y + h + 15),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)

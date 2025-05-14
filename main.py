@@ -6,6 +6,7 @@ import json
 import base64 
 import io          
 import pickle
+import logging
 from settings import *
 from PIL import Image
 from settings import *
@@ -18,26 +19,34 @@ from face_utils import init_face_recognition_model, init_face_spoof_detector
 from face_detector import FaceDetector
 from door_control import DoorController
 from log_sender import send_history_log, send_warning_log
+from receive_server_message import stomp_websocket_client
 
 shared_state_lock = asyncio.Lock()
 shared_data = {
     "lock": shared_state_lock,
-    "is_connected_to_backend": False,
-    "current_mode": "FREE",
+    "is_connected": False,
+    "current_mode": "secure",
     "known_face_embeddings": [],
     "known_face_ids": [],
 }
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 known_face_embeddings, known_face_ids = get_embeddings_data()
 known_faces_data_cache = {}
 
 def load_embeddings():
-    global shared_data
     try:
-        asyncio.run(update_shared_data(known_face_embeddings, known_face_ids))
-        logger.info(f"Loaded {len(shared_data['known_face_ids'])} known faces from {EMBEDDINGS_FILE}")
+        loop = asyncio.get_event_loop()
+        loop.create_task(
+            update_shared_data(embeddings=known_face_embeddings,
+                               ids=known_face_ids)
+        )
+        logger.info(f"Scheduled loading of embeddings from {EMBEDDINGS_FILE}")
     except Exception as e:
-        logger.error(f"Error loading embeddings: {e}", exc_info=True)
+        logger.error(f"Error scheduling embeddings load: {e}", exc_info=True)
+
 
 def save_embeddings():
     global shared_data
@@ -59,7 +68,7 @@ async def update_shared_data(**kwargs):
             if key in shared_data:
                  # logger.debug(f"Updating shared_data: {key} = {value}") # Log nếu cần
                  shared_data[key] = value
-            elif key == "embeddings": # Xử lý riêng cho embeddings và ids nếu cần
+            elif key == "embeddings":
                  shared_data["known_face_embeddings"] = value
             elif key == "ids":
                  shared_data["known_face_ids"] = value
@@ -143,6 +152,13 @@ except Exception as e:
 
 websocket_task = None
 
+websocket_handlers = {
+    "update_mode": update_local_mode,
+    "add_user": process_user_image_data,
+    "update_user": process_user_image_data,
+    "delete_user": remove_local_user,
+}
+
 @app.on_event("startup")
 async def startup_event():
     global websocket_task
@@ -188,7 +204,7 @@ def index():
 def video_feed():
     # Streaming endpoint
     return StreamingResponse(
-        main_camera_loop(shared_data, spoof_detector, face_detector, interpreter_rec, door_controller)
+        main_camera_loop(shared_data, spoof_detector, face_detector, face_recognitor, door_controller),
         media_type='multipart/x-mixed-replace; boundary=frame'
     )
 

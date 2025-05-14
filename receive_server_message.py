@@ -33,10 +33,6 @@ async def send_stomp_frame(websocket, command, headers, body=""):
 async def parse_and_process_message(message_body, handlers):
     """
     Phân tích nội dung JSON và gọi handler tương ứng.
-
-    Hỗ trợ cả hai định dạng:
-      - {{"type": ..., "payload": ...}}
-      - {{"message": ..., "data": ...}}
     """
     try:
         data = json.loads(message_body)

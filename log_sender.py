@@ -12,25 +12,36 @@ def _frame_to_base64(frame) -> str:
 
     jpg_bytes = buffer.tobytes()
     b64_str = base64.b64encode(jpg_bytes).decode('utf-8')
+    # print(b64_str)
+    # print(base64.urlsafe_b64encode(jpg_bytes))
     return b64_str
 
+# _frame_to_base64(cv2.imread("/home/hien/embedded_system_2024-2025/data/known_faces/HienNV01.jpg"))
 
-def send_history_log(frame, people_id: str, mode: str = "secure") -> requests.Response:
+
+
+def send_history_log(frame, people_id: int, mode: str = "secure") -> requests.Response:
     timestamp = datetime.utcnow().isoformat() + 'Z'
     image_b64 = _frame_to_base64(frame)
 
     payload = {
         "timestamp": timestamp,
         "peopleId": people_id,
-        "image": image_b64,
+        "imagePath": image_b64,
         "mode": mode
     }
 
-    url = f"{api_base_url.rstrip('/')}/api/history"
+    # headers = {
+    #     "Content-Type": "application/json",
+    # }
+
+    url = f"{API_BASE_URL.rstrip('/')}/api/history"
     response = requests.post(url, json=payload)
     response.raise_for_status()
     return response
 
+
+# send_history_log(cv2.imread("/home/hien/embedded_system_2024-2025/data/known_faces/HienNV01.jpg"), "1", "secure")
 
 def send_warning_log(frame, info: str) -> requests.Response:
     timestamp = datetime.utcnow().isoformat() + 'Z'
@@ -38,11 +49,13 @@ def send_warning_log(frame, info: str) -> requests.Response:
 
     payload = {
         "timestamp": timestamp,
-        "image": image_b64,
+        "imagePath": image_b64,
         "info": info
     }
 
-    url = f"{api_base_url.rstrip('/')}/api/warnings"
+    url = f"{API_BASE_URL.rstrip('/')}/api/warning"
     response = requests.post(url, json=payload)
     response.raise_for_status()
     return response
+
+# send_warning_log(cv2.imread("/home/hien/embedded_system_2024-2025/data/known_faces/HienNV01.jpg"), "test warning")

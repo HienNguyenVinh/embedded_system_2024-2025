@@ -6,21 +6,23 @@ import time
 
 class DoorController:
     def __init__(self):
-        SERVO_PIN   = 18
-        TRIG_PIN    = 23 
-        ECHO_PIN    = 24 
+        SERVO_PIN   = 15
+        TRIG_PIN    = 8
+        ECHO_PIN    = 9 
         BUZZER_PIN  = 17
         
         self.distance_sensor = DistanceSensor(echo=ECHO_PIN, trigger=TRIG_PIN)
-        self.servo = AngularServo(SERVO_PIN, min_angle=0, max_angle=90)
+        # self.servo = AngularServo(SERVO_PIN, min_angle=0, max_angle=90, initial_angle=0)
         self.buzzer = Buzzer(BUZZER_PIN)
 
     def open_door(self):
         try:
-            self.servo.angle = 90  # Open the door
+            SERVO_PIN   = 15
+            self.servo = AngularServo(SERVO_PIN, min_angle=0, max_angle=90)
+            self.servo.angle = 90
             print("Opening door...")
-            time.sleep(5)
-            self.servo.angle = 0   # Close the door
+            time.sleep(3)
+            self.servo.angle = 0 
             print("Door opened and closed successfully.")
             
         except Exception as e:
@@ -36,12 +38,12 @@ class DoorController:
             self.buzzer.off()
             time.sleep(off_time)
 
-if __name__ == "__main__":
-    try:
-        door_controller = DoorController()
+# if __name__ == "__main__":
+#     try:
+#         door_controller = DoorController()
         
-        door_controller.activate_buzzer()
-        door_controller.open_door()
-    except KeyboardInterrupt:
-        print("Program interrupted.")
-        pass
+#         door_controller.activate_buzzer()
+#         door_controller.open_door()
+#     except KeyboardInterrupt:
+#         print("Program interrupted.")
+#         pass

@@ -8,12 +8,12 @@ import io
 from face_utils import init_face_recognition_model
 from face_detector import FaceDetector
 
-# face_detector = FaceDetector()
-# interpreter = init_face_recognition_model()
+face_detector = FaceDetector()
+interpreter = init_face_recognition_model()
 
-# input_details = interpreter.get_input_details()
-# output_details = interpreter.get_output_details()
-# input_dtype = input_details[0]['dtype']
+input_details = interpreter.get_input_details()
+output_details = interpreter.get_output_details()
+input_dtype = input_details[0]['dtype']
 
 
 # --- Hàm tiền xử lý và embedding ---
@@ -45,7 +45,7 @@ def get_face_embedding_tflite(image, face_detector, interpreter):
         print("Error: Cannot read image.")
         return None
     
-    resized_image = cv2.resize(image, (INPUT_WIDTH_DET, INPUT_HEIGHT_DET))
+    resized_image = cv2.resize(image, (INPUT_WIDTH, INPUT_HEIGHT))
     face_results = face_detector.get_faces(resized_image)
 
     if not face_results:
@@ -116,7 +116,7 @@ if __name__ == "__main__":
             continue
 
         # Gọi hàm mới sử dụng TFLite
-        embedding = get_face_embedding_tflite(image)
+        embedding = get_face_embedding_tflite(image, face_detector, interpreter)
 
         if embedding is not None:
             known_face_embeddings.append(embedding)
