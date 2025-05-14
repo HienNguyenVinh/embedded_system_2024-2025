@@ -17,7 +17,7 @@ from log_sender import send_history_log, send_warning_log
 def find_matching_face(face_embedding, known_face_embeddings, known_face_ids):
     if face_embedding is None or len(known_face_embeddings) == 0:
         return "Unknown", float('inf')
-        
+
     try:
         distances = [cosine(face_embedding, known_embedding) for known_embedding in known_face_embeddings]
     except Exception as e:
@@ -34,7 +34,7 @@ def find_matching_face(face_embedding, known_face_embeddings, known_face_ids):
     if min_distance < RECOGNITION_THRESHOLD:
         return known_face_ids[min_distance_index], min_distance
     else:
-        return -1, min_distance
+        return "Unknown", min_distance
 
 async def main_camera_loop(shared_data, spoof_detector, face_detector, face_recognitor, door_controller):
     print("Starting main camera processing loop...")
@@ -114,7 +114,7 @@ async def main_camera_loop(shared_data, spoof_detector, face_detector, face_reco
                         is_spoof = spoof_results["is_spoof"]
                         spoof_score = spoof_results["score"]
 
-                        if recognition_id != -1 and not is_spoof:
+                        if recognition_id != "Unknown" and not is_spoof:
                             color = (0, 255, 0)
                             status_text = "REAL"
 
@@ -124,8 +124,8 @@ async def main_camera_loop(shared_data, spoof_detector, face_detector, face_reco
                                 send_history_log(frame, recognition_id, effective_mode)
                                 seen_history.add(recognition_id)
 
-                            door_controller.activate_buzzer(beeps=2, on_time=0.25, off_time=0.25)
-                            door_controller.open_door()
+                                door_controller.activate_buzzer(beeps=2, on_time=0.1, off_time=0.1)
+                                door_controller.open_door()
 
                         elif is_spoof:
                             color = (0, 0, 255)
