@@ -12,6 +12,8 @@ from PIL import Image
 from settings import *
 from picamera2 import Picamera2
 import cv2
+import numpy as np
+import aiohttp
 
 from embedding_face import get_face_embedding_tflite, get_embeddings_data
 from camera_loop import main_camera_loop
@@ -84,39 +86,47 @@ async def update_local_mode(new_mode):
     else:
         logger.warning("Received MODE_UPDATE with invalid mode.")
 
-async def process_user_image_data(user_id, name, face_image_data_base64):
+async def process_user_image_data(user_id, face_image_url):
     """Callback khi nhận USER_ADDED hoặc USER_UPDATED."""
-    if not all([user_id, name, face_image_data_base64]):
-        logger.warning(f"Received ADD/UPDATE user with missing data (id={user_id}, name={name})")
+    if not all([user_id, face_image_url]):
+        logger.warning(f"Received ADD/UPDATE user with missing data (id={user_id})")
         return
 
-    logger.info(f"Processing user data for ID: {user_id}, Name: {name}")
+    logger.info(f"Processing user data for ID: {user_id}")
     try:
-        image_data = base64.b64decode(face_image_data_base64)
-        nparr = np.frombuffer(image_data, np.uint8)
+        # Tải ảnh từ URL
+        async with aiohttp.ClientSession() as session:
+            async with session.get(face_image_url) as resp:
+                if resp.status != 200:
+                    logger.error(f"Failed to fetch image URL for user {user_id}. HTTP status: {resp.status}")
+                    return
+                image_bytes = await resp.read()
+
+        # Giải mã ảnh
+        nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None:
             logger.error(f"Failed to decode image for user {user_id}")
             return
 
+        # Trích xuất embedding
         embedding = get_face_embedding_tflite(img, face_detector, face_recognitor)
 
+        # Lưu embedding vào shared_data
         if embedding is not None and embedding.size > 0:
             logger.info(f"Successfully extracted embedding for user {user_id}.")
-
             async with shared_data["lock"]:
-                shared_data["known_face_embeddings"][user_id] = embedding
+                shared_data["known_face_embeddings"].append(embedding)
                 if user_id not in shared_data["known_face_ids"]:
                     shared_data["known_face_ids"].append(user_id)
                     logger.info(f"Added new user ID {user_id} to known list.")
                 else:
-                     logger.info(f"Updated embedding for existing user ID {user_id}.")
-
+                    logger.info(f"Updated embedding for existing user ID {user_id}.")
         else:
             logger.warning(f"Could not extract embedding for user {user_id}. Image might not contain a face or is invalid.")
 
-    except base64.binascii.Error:
-        logger.error(f"Invalid Base64 data received for user {user_id}")
+    except aiohttp.ClientError as e:
+        logger.error(f"Error fetching image URL for user {user_id}: {e}", exc_info=True)
     except Exception as e:
         logger.error(f"Error processing image data for user {user_id}: {e}", exc_info=True)
 

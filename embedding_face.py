@@ -49,6 +49,7 @@ def get_face_embedding_tflite(image, face_detector, interpreter):
     face_results = face_detector.get_faces(resized_image)
 
     if not face_results:
+        print("Error: No faces detected.")
         return None
 
     best_crop, _ = max(face_results, key=lambda item: item[1][2] * item[1][3])
@@ -67,25 +68,28 @@ def get_embeddings_data():
     try:
         if not os.path.isfile(EMBEDDINGS_FILE):
             raise FileNotFoundError(f"Embeddings file not found: {EMBEDDINGS_FILE}")
+        
         with open(EMBEDDINGS_FILE, "rb") as f:
             data = pickle.load(f)
             known_face_embeddings = data["embeddings"]
             known_face_ids = data["ids"]
-            if not known_face_embeddings or not known_face_ids:
+
+            if len(known_face_embeddings) == 0 or len(known_face_ids) == 0:
                 print("Cảnh báo: File embeddings trống hoặc không hợp lệ.")
                 known_face_embeddings = []
                 known_face_ids = []
-            print(f"Đã tải {len(known_face_ids)} embeddings TFLite đã biết.")
+            else:
+                print(f"Đã tải {len(known_face_ids)} embeddings TFLite đã biết.")
 
             return known_face_embeddings, known_face_ids
-        
+
     except FileNotFoundError:
         print(f"Lỗi: Không tìm thấy file embeddings '{EMBEDDINGS_FILE}'.")
-        print("Vui lòng chạy lại file 'embedding_face.py' (phiên bản TFLite) trước.")
-        exit()
+        # exit()
     except Exception as e:
         print(f"Lỗi khi tải file embeddings: {e}")
-        exit()
+        # exit()
+
 
 
 # --- Main (Giữ nguyên logic chính, chỉ thay đổi hàm gọi) ---

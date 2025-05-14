@@ -55,13 +55,13 @@ async def parse_and_process_message(message_body, handlers):
 
         if nt in ("MODE_UPDATE", "UPDATE_MODE") and handlers.get("update_mode"):
             await handlers["update_mode"](payload.get('mode'))
-        elif nt == "USER_ADDED" and handlers.get("add_user"):
+        elif nt == "ADD_PEOPLE" and handlers.get("add_user"):
             await handlers["add_user"](
-                payload.get('id'), payload.get('name'), payload.get('faceImageData')
+                payload.get('identificationId'), payload.get('image_path')
             )
         elif nt == "USER_UPDATED" and handlers.get("update_user"):
             await handlers["update_user"](
-                payload.get('id'), payload.get('name'), payload.get('faceImageData')
+                payload.get('id'), payload.get('name'), payload.get('image_path')
             )
         elif nt == "USER_DELETED" and handlers.get("delete_user"):
             await handlers["delete_user"](payload.get('id'))
